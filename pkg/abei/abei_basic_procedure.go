@@ -144,8 +144,22 @@ func NewBasicProcedureClass(
 	outputs map[int]IDataClass,
 	funcRunc BasicProcedureFuncRun,
 ) (IProcedureClass, error) {
-	// TODO: check if inputs and ouputs is all resgistered in module or its dependencies
-	// ...
+
+	moduleID := module.GetID()
+
+	for _, dc := range inputs {
+		module := dc.GetModule()
+		if module.GetID() != moduleID && module.GetDependency(moduleID) == nil {
+			return nil, errors.New("input data class not found in module or its dependecies")
+		}
+	}
+
+	for _, dc := range outputs {
+		module := dc.GetModule()
+		if module.GetID() != moduleID && module.GetDependency(moduleID) == nil {
+			return nil, errors.New("ouput data class not found in module or its dependecies")
+		}
+	}
 
 	pc := basicProcedureClass{
 		module:   module,

@@ -128,10 +128,13 @@ func NewBasicModule(
 	dependencies []IModule,
 ) (IModule, error) {
 	m := basicModule{
-		id:       id,
-		name:     name,
-		document: document,
-		freezed:  false,
+		id:               id,
+		name:             name,
+		document:         document,
+		freezed:          false,
+		dependencies:     map[string]IModule{},
+		dataClasses:      map[string]IDataClass{},
+		procedureClasses: map[string]IProcedureClass{},
 	}
 	// TODO: check circle dependencies
 	for _, dep := range dependencies {

@@ -6,21 +6,16 @@ import (
 	"github.com/google/uuid"
 )
 
-type compositeProcedureLink struct {
-	node string // input/ouput node
-	slot int    // input/output index
-}
-
 type compositeProcedureCache map[string]IDataParams
 
-type compositeProcedureNodeOutput struct {
-	node *compositeProcedureNode
-	slot int
+type compositeProcedureSource struct {
+	srcNode *compositeProcedureNode
+	srcSlot int
 }
 
-func (o *compositeProcedureNodeOutput) Run(args IDataParams, cache compositeProcedureCache) (IData, error) {
-	if o.node == nil {
-		data, ok := args[o.slot]
+func (o *compositeProcedureSource) Run(args IDataParams, cache compositeProcedureCache) (IData, error) {
+	if o.srcNode == nil {
+		data, ok := args[o.srcSlot]
 		if !ok {
 			return nil, errors.New("not found in params")
 
@@ -28,12 +23,12 @@ func (o *compositeProcedureNodeOutput) Run(args IDataParams, cache compositeProc
 		return data, nil
 	}
 
-	outputs, err := o.node.Run(args, cache)
+	outputs, err := o.srcNode.Run(args, cache)
 	if err != nil {
 		return nil, err
 	}
 
-	output, ok := outputs[o.slot]
+	output, ok := outputs[o.srcSlot]
 	if !ok {
 		return nil, errors.New("not found in node outputs")
 	}
@@ -42,9 +37,10 @@ func (o *compositeProcedureNodeOutput) Run(args IDataParams, cache compositeProc
 }
 
 type compositeProcedureNode struct {
-	id     string
-	ref    IProcedure
-	inputs map[int]compositeProcedureNodeOutput
+	id  string
+	ref IProcedure
+	// map of sources where keys are targets of links or inputs of referencing procedure
+	sources map[int]compositeProcedureSource
 }
 
 func (n *compositeProcedureNode) Run(args IDataParams, cache compositeProcedureCache) (IDataParams, error) {
@@ -53,14 +49,27 @@ func (n *compositeProcedureNode) Run(args IDataParams, cache compositeProcedureC
 		return outputs, nil
 	}
 
-	// TODO: run procedure recursively
-	return nil, nil
+	curArgs := IDataParams{}
+	for slot, source := range n.sources {
+		arg, err := source.Run(args, cache)
+		if err != nil {
+			return nil, err
+		}
+		curArgs[slot] = arg
+	}
+
+	outputs, err := n.ref.Run(curArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	return outputs, nil
 }
 
 type compositeProcedure struct {
 	id      string
 	cls     *compositeProcedureClass
-	outputs map[int]compositeProcedureNodeOutput
+	sources map[int]compositeProcedureSource
 }
 
 func (p *compositeProcedure) GetID() string {
@@ -74,8 +83,8 @@ func (p *compositeProcedure) GetClass() IProcedureClass {
 func (p *compositeProcedure) Run(args IDataParams) (IDataParams, error) {
 	cache := compositeProcedureCache{}
 	outputs := IDataParams{}
-	for slot, o := range p.outputs {
-		output, err := o.Run(args, cache)
+	for slot, source := range p.sources {
+		output, err := source.Run(args, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -92,6 +101,7 @@ type compositeProcedureClass struct {
 	document string
 	inputs   IDataClassParams
 	outputs  IDataClassParams
+	sources  []compositeProcedureSource
 }
 
 func (pc *compositeProcedureClass) GetModule() IModule {
@@ -129,6 +139,11 @@ func (pc *compositeProcedureClass) Create() (IProcedure, error) {
 	return &p, nil
 }
 
+type ProcedureJoint struct {
+	node string // input/ouput node
+	slot int    // input/output index
+}
+
 func NewCompositeProcedureClass(
 	module IModule,
 	id string,
@@ -137,7 +152,8 @@ func NewCompositeProcedureClass(
 	inputs map[int]IDataClass,
 	outputs map[int]IDataClass,
 	nodes map[string]IProcedureClass,
-	links map[compositeProcedureLink]compositeProcedureLink,
+	// links maps where keys are targets and values are sources
+	links map[ProcedureJoint]ProcedureJoint,
 ) (IProcedureClass, error) {
 	// TODO: check if inputs and ouputs is all resgistered in module or its dependencies
 	// ...
@@ -151,7 +167,7 @@ func NewCompositeProcedureClass(
 		outputs:  outputs,
 	}
 
-	// TODO: load nodes and links by parsing scripts
+	// TODO: load nodes and links
 	// ...
 
 	err := module.RegisterProcedureClass(&pc)
